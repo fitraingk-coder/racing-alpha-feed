@@ -1,18 +1,6 @@
 {
   "date": "2026-09-26",
   "rule": "AW + v1.0 and v1.1 same horse",
-  "qualifiers": [
-    {
-      "time": "20:00",
-      "course": "Southwell (AW)",
-      "horse": "Justice Court",
-      "v1_fractional": "10/1",
-      "v1_decimal": 11.0,
-      "v1_bookmaker": "Matchbook",
-      "v1_1_fractional": "9/1",
-      "v1_1_decimal": 10.5,
-      "v1_1_bookmaker": "Betfair Exchange"
-    }
-  ],
+  "qualifiers": [],
   "source": "Racing Alpha head-to-head"
 }
