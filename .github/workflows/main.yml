@@ -19,7 +19,7 @@ jobs:
       - name: Fetch Racing Alpha feed
         run: |
           curl -L --fail --retry 3 \
-            "https://icy-queen-0db8.fifetradinguk.workers.dev" \
+            "https://icy-queen-0db8.fifetradinguk.workers.dev/" \
             -o racing-alpha.txt
 
       - name: Find today's AW agreements
@@ -27,126 +27,80 @@ jobs:
         run: |
           import re
           import json
+          import html
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
-          text = open(
-              "racing-alpha.txt",
-              encoding="utf-8"
-          ).read()
+          with open("racing-alpha.txt", encoding="utf-8") as f:
+              text = f.read()
+
+          # Convert HTML entities such as &#x27; back to characters.
+          text = html.unescape(text)
+
+          # Make the downloaded page one clean searchable string.
+          text = re.sub(r"\s+", " ", text).strip()
 
           today = datetime.now(
               ZoneInfo("Europe/London")
           ).strftime("%d/%m/%Y")
 
           bookmakers = (
-              r"Matchbook|Betfair Exchange|Betfair Sportsbook|"
-              r"SmarketsSBK|Smarkets|Bet365|Betfred|"
-              r"Paddy Power|William Hill|Ladbrokes|Coral|"
-              r"Unibet|BetMGM|BetTom|10 Bet"
+              r"Betfair Exchange|Betfair Sportsbook|"
+              r"SmarketsSBK|Smarkets|Matchbook|Bet365|"
+              r"Betfred|Paddy Power|William Hill|Ladbrokes|"
+              r"Coral|Unibet|BetMGM|BetTom|10 Bet"
           )
 
-          # Isolate today's ledger rows.
-          starts = list(re.finditer(
-              rf"{re.escape(today)}\s+\d{{2}}:\d{{2}}\s+",
-              text
-          ))
+          # Locate the beginning of every race row for today.
+          row_start = re.compile(
+              rf"(?={re.escape(today)}\s+\d{{2}}:\d{{2}}\s+)"
+          )
+
+          parts = row_start.split(text)
 
           qualifiers = []
 
-          for i, match in enumerate(starts):
-              start = match.start()
-              end = (
-                  starts[i + 1].start()
-                  if i + 1 < len(starts)
-                  else len(text)
-              )
+          for row in parts:
+              if not row.startswith(today):
+                  continue
 
-              row = text[start:end]
-
-              # Our experiment is AW only.
+              # Experiment rule: all-weather races only.
               if "(AW)" not in row:
                   continue
 
-              # Current/pending races are all we need for alerts.
+              # We are interested in today's unsettled races.
               if "pending" not in row:
                   continue
 
               header = re.match(
                   rf"{re.escape(today)}\s+"
                   r"(\d{2}:\d{2})\s+"
-                  r"(.+?\(AW\))\s+"
-                  r".*?\bStandard\b\s+",
+                  r"(.+?AW)\s+"
+                  r"Flat\b.*?\bStandard\b\s+",
                   row
               )
 
               if not header:
                   continue
 
-              time = header.group(1)
-              course = header.group(2)
+              race_time = header.group(1)
+              course = header.group(2).strip()
 
-              picks_text = row[header.end():]
-              picks_text = picks_text.split(" pending", 1)[0]
+              body = row[header.end():]
 
-              pick_pattern = re.compile(
-                  r"(?:^|(?:" + bookmakers + r")\s+)"
-                  r"([A-Za-z][A-Za-z0-9'’.\-& ]*?)\s+"
-                  r"(\d+/\d+)\s+·\s+"
-                  r"(\d+\.\d+)\s+"
-                  r"(" + bookmakers + r")"
+              # Remove result/P&L material after the selections.
+              body = body.split(" pending", 1)[0]
+
+              # Selection format:
+              # Horse 10/1 · 11.00 Matchbook
+              pick_re = re.compile(
+                  rf"(.+?)\s+"
+                  r"(\d+/\d+)\s*·\s*"
+                  r"(\d+(?:\.\d+)?)\s+"
+                  rf"({bookmakers})(?=\s|$)"
               )
 
-              picks = list(pick_pattern.finditer(picks_text))
+              picks = list(pick_re.finditer(body))
 
-              # First two priced selections are v1.0 and v1.1.
-              if len(picks) < 2:
-                  continue
-
-              v1 = picks[0]
-              v11 = picks[1]
-
-              horse1 = " ".join(v1.group(1).split())
-              horse2 = " ".join(v11.group(1).split())
-
-              if horse1.casefold() != horse2.casefold():
-                  continue
-
-              qualifiers.append({
-                  "time": time,
-                  "course": course,
-                  "horse": horse1,
-                  "v1_fractional": v1.group(2),
-                  "v1_decimal": float(v1.group(3)),
-                  "v1_bookmaker": v1.group(4),
-                  "v1_1_fractional": v11.group(2),
-                  "v1_1_decimal": float(v11.group(3)),
-                  "v1_1_bookmaker": v11.group(4)
-              })
-
-          output = {
-              "date": datetime.now(
-                  ZoneInfo("Europe/London")
-              ).strftime("%Y-%m-%d"),
-              "rule": "AW + v1.0 and v1.1 same horse",
-              "qualifiers": qualifiers,
-              "source": "Racing Alpha head-to-head"
-          }
-
-          with open(
-              "qualifiers.json",
-              "w",
-              encoding="utf-8"
-          ) as f:
-              json.dump(output, f, indent=2, ensure_ascii=False)
-
-          print(json.dumps(output, indent=2))
-
-      - name: Commit latest feed
-        run: |
-          git config user.name "racing-alpha-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add racing-alpha.txt qualifiers.json
-          git diff --cached --quiet && exit 0
-          git commit -m "Update Racing Alpha feed"
-          git push
+              # Both v1.0 and v1.1 must have a priced selection.
+              if len(picks) < 
