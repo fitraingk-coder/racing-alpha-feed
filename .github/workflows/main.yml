@@ -44,23 +44,33 @@ jobs:
               r"Betfair Exchange|Betfair Sportsbook|"
               r"SmarketsSBK|Smarkets|Matchbook|Bet365|"
               r"Betfred|Paddy Power|William Hill|Ladbrokes|"
-              r"Coral|Unibet|BetMGM|BetTom|10 Bet"
+              r"Coral|Unibet|BetMGM|BetTom|10 Bet|"
+              r"Hollywood Bets"
           )
 
-          row_start = re.compile(
-              rf"(?={re.escape(today)}\s+\d{{2}}:\d{{2}}\s+)"
+          # Split at EVERY race date/time header.
+          # This prevents one race from swallowing data
+          # belonging to another race or another day.
+          race_header = re.compile(
+              r"(?=\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}\s+)"
           )
 
-          parts = row_start.split(text)
+          rows = race_header.split(text)
           qualifiers = []
 
-          for row in parts:
-              if not row.startswith(today):
+          for row in rows:
+              # Only process rows belonging to today.
+              if not re.match(
+                  rf"^{re.escape(today)}\s+\d{{2}}:\d{{2}}\s+",
+                  row
+              ):
                   continue
 
+              # Frozen rule requires All-Weather.
               if "(AW)" not in row:
                   continue
 
+              # Only live/pending selections are relevant.
               if "pending" not in row:
                   continue
 
@@ -90,7 +100,8 @@ jobs:
 
               picks = list(pick_re.finditer(body))
 
-              if len(picks) in (0, 1):
+              # Need both v1.0 and v1.1 selections.
+              if len(picks) < 2:
                   continue
 
               v1 = picks[0]
@@ -108,6 +119,8 @@ jobs:
                   v11.group(1)
               ).strip(" —")
 
+              # Frozen rule:
+              # v1.0 and v1.1 must select the SAME horse.
               if horse1.casefold() != horse2.casefold():
                   continue
 
